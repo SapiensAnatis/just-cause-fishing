@@ -188,7 +188,7 @@ function tick() {
 	console.log("bobber.isNearTop: ", bobber.isNearTop)1; */
 
 	// Calculate acceleration based on whether mouse is held
-	console.log("bobber.isNearBottom: ", bobber.isNearBottom);
+	
 	if (bobber.idleAtBottom) {
 		if (mouseDown) {
 			bobber.acceleration = mouseStrength;
