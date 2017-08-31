@@ -1,0 +1,44 @@
+<html>
+	<head>
+		<style>
+			#container {
+				position: relative;
+			}
+
+			#animation {
+				position: absolute;
+				background: #00ff00
+			}
+
+			#bobber {
+				position: absolute;
+			}
+
+			#fishy {
+				position: absolute;
+				bottom: 300;
+				left: 3
+			}
+
+			#container {
+				top: 400;
+				left: 38;
+			}
+		</style>
+
+		<script type="text/javascript" src="bobber.js">
+		</script>	
+	</head>
+	<body>
+		<div id="main"> 
+			<!-- <img id="background" src="imgs/static.png"> -->
+			<div id="container">
+				<svg id="bobber" width="25" height="75">
+					<rect width="25" height="75" style="fill:rgb(30,240,30)" />
+				</svg>
+				<img id="fishy" src="imgs/fishicon.png">
+			</div>
+		</div>
+	</body>
+</html>
+
