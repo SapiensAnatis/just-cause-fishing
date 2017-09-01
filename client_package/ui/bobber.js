@@ -6,11 +6,16 @@ var pos = 5;
 // Physics constants
 // The value of the bobber object's bottom margin when at the minimum point
 var rectHeight = null;
+
+// Okay, I lied, this one isn't really a constant, but it used to be. It needs to change because if the resolution
+// changes, so does the size of the rectangles (the UI is scaled to be proportionate to screen res, so that
+// nobody is squinting trying to see it on a 4k monitor)
 function getRectHeight() {
-	rectHeight = window.innerHeight * 0.6
-	// Called on resolution change
+	rectHeight = window.innerHeight * 0.6 - 2
+	// Called on resolution change. Subtract 2 to maintain borders
 }
 
+// The resolution change event, which calls this function, *seems* to be called on load, but just to be sure:
 getRectHeight();
 
 
@@ -20,14 +25,28 @@ const gravityStrength = -9.81 * 80;
 const bounciness = -0.6;
 // The 'power' of the mouse click represented as an acceleration
 const mouseStrength = 9.81 * 80;
+
 // Clamps
-const maxVelocity = 500;
-const minVelocity = -500;
-// Minimum speed (absolute value of velocity) required to bounce. Prevents the bobber from bouncing in small amounts infinitely at the bottom,
-// or 'jittering'
+// The maximum speed (absolute velocity) the bobber can reach. Because we use acceleration, holding the mouse for
+// too long could result in the bobber reaching stupid speeds which are hard to control. 
+const maxSpeed = 500;
+// Minimum speed (absolute value of velocity) required to bounce. Prevents the bobber from bouncing in small 
+// amounts infinitely at the bottom, i.e. 'jittering'
 const minSpeedBounce = 100;
 
 // Time constants
+
+/*
+ * There are two tick-rates here because I found that anything above 34ms (30fps) makes the bobber appear 
+ * 'laggy' on the screen.
+ * However, such high tick rates for doing everything (mouse polling, calculations, redrawing) 
+ * can cause fps lag in the wider game.
+ * So I have a tick rate which is for the minimum (recalculating position and drawing) to represent a change; this 
+ * one is low enough to make the bobber not animated in a choppy way, and then the rest (calculating velocity 
+ * and acceleration) is on a higher tickrate.
+ * If FPS issues aren't really there, then you can always put them equal to each other.
+ */
+
 // Tick rate in milliseconds, used for polling mouse and applying acceleration/velocity
 const majorTickRate = 80;
 // Tick rate in ms used for recalculating position and redrawing bobber
@@ -35,7 +54,8 @@ const minorTickRate = 20;
 
 // Misc constants
 // Pixel tolerance for the bobber being considered 'near' the bottom or top
-const nearConstant = 50;
+// You shouldn't need to change this unless users complain that the bobber freezes when it isn't near the bottom
+const nearConstant = 10;
 
 // ----- Bobber class definition -----
 class Bobber {
@@ -47,8 +67,6 @@ class Bobber {
 		this._position = 20;
 		this.velocity = 0.1;
 		this.acceleration = 0;
-		// Bounce cooldown
-		this.lastbounce = null;
 		// Stuck variables
 		this.idleAtBottom = false;
 		this.idleAtTop = false;
@@ -64,8 +82,12 @@ class Bobber {
 	bounce() {
 		// Stick to bottom
 		if (Math.abs(this.velocity) < minSpeedBounce) {
-			if (this.isNearBottom) { this.stickBottom(); }
-			else if (this.isNearTop) { this.stickTop(); }
+			// If it's not really going anywhere, determine where this is happening & stick accordingly
+			this.acceleration = 0;
+			this.velocity = 0;
+
+			if (this.isNearBottom) { this.idleAtBottom = true; }
+			else if (this.isNearTop) { this.idleAtTop = true; }
 			return;
 		}
 		// Invert velocity appropriately
@@ -82,6 +104,7 @@ class Bobber {
 			this.bounce();
 		}
 
+		// Same if we're moving into the bottom
 		if (newPos < 0) {
 			newPos = 0;
 			this.bounce();
@@ -96,26 +119,11 @@ class Bobber {
 	}
 
 	set velocity(newVelocity) {
-		if (newVelocity > maxVelocity) {
-			this._velocity = maxVelocity;
-		} else if (newVelocity < minVelocity) {
-			this._velocity = minVelocity;
-		} else {
-			this._velocity = newVelocity;
-		}
-	}
-
-	// Delta (change) funcs
-	// ds = change in position (velocity)
-	// dv = change in velocity (acceleration)
-
-
-	get dsPerTick() {
-		return this.velocity * (minorTickRate / 1000)
-	}
-
-	get dvPerTick() {
-		return this.acceleration * (majorTickRate / 1000)
+		// Clamp velocity
+		// If it's over, the min() will set it to positive max speed (500)
+		this._velocity = Math.min(newVelocity, maxSpeed)
+		// If it's under, max() will set it to -500
+		this._velocity = Math.max(newVelocity, maxSpeed * -1)
 	}
 
 	// Check if near bottom/top for sticking funcs
@@ -126,32 +134,13 @@ class Bobber {
 	get isNearBottom() {
 		return (this.position < nearConstant);
 	}
-
-	stickBottom() {
-		// Stick to bottom to prevent infinite bounce
-		this.acceleration = 0;
-		this.velocity = 0;
-		this.idleAtBottom = true;
-	}
-	
-	stickTop() {
-		this.acceleration = 0;
-		this.velocity = 0;
-		this.idleAtTop = true;
-	}
 }
 
 // ----- Application logic -----
 
 // Initialization
+// Declare this here to put it in the global scope, as we need to access it pretty much everywhere
 var bobber = null;
-var positionLabel = null;
-var velocityLabel = null;
-var accelerationLabel = null;
-var mainDiv = null;
-
-var visible = false;
-
 
 function init() {
 	// Grab elements on load
@@ -163,6 +152,7 @@ function init() {
 }
 
 // Mouse functions (keeping track of if a mouse button is down or not)
+// Kind of sucks but I'm not aware of any better method
 var mouseDown = 0;
 window.onmousedown = function() {
 	++mouseDown;
@@ -177,7 +167,8 @@ function drawBobber() {
 	// Since we're working with the y property - the number of pixels /down/, we need to invert our position
 	var projectedPosition = rectHeight - bobber.position
 	// Need to account for the bobber's initial offset too, to make it fit inside the ocean rect
-	projectedPosition +=  + 0.0255 * window.innerHeight;
+	projectedPosition += 0.0255 * window.innerHeight;
+	// Update y property
 	bobber.obj.setAttribute("y", projectedPosition+"px")
 }
 
@@ -190,16 +181,19 @@ function tick() {
 	// Calculate acceleration based on whether mouse is held
 	
 	if (bobber.idleAtBottom) {
+		// If stuck at bottom, we're waiting for the user to press their mouse to release
 		if (mouseDown) {
 			bobber.acceleration = mouseStrength;
 			bobber.idleAtBottom = false;
 		}
 	} else if (bobber.idleAtTop) {
+		// Conversely, if stuck at the top, we're waiting for them to let go
 		if (!mouseDown) {
 			bobber.acceleration = gravityStrength;
 			bobber.idleAtTop = false;
 		}
 	} else {
+		// Otherwise do normal behaviour
 		if (mouseDown) {
 			bobber.acceleration = mouseStrength;
 		} else {
@@ -207,31 +201,15 @@ function tick() {
 		}
 	}
 	
-	// Apply acceleration values to velocity, and then velocity values to position
-	bobber.velocity += bobber.dvPerTick;
+	// Apply acceleration values to velocity
+	bobber.velocity += (bobber.acceleration * (majorTickRate / 1000))
 
 }
 
 function microtick() {
 	// Redraw func
-	bobber.position += bobber.dsPerTick;
+	// Recalculate position
+	bobber.position += (bobber.velocity * (minorTickRate / 1000))
+	// And redraw
 	drawBobber();
 }
-
-
-
-			
-// ----- UI logic
-/* window.onkeypress = function(e) {
-	var keycharPressed = String.fromCharCode(e.which)
-	alert("You pressed: ", e.which);
-	if (keycharPressed == "f") {
-		visible = !visible;
-		// Update visibility accordingly
-		if (visible) {
-			mainDiv.style.visibility = "visible";
-		} else {
-			mainDiv.style.visibility = "hidden";
-		}
-	}
-} */
